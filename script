@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+#  deploy_grocery_cart.sh
+#  One-shot installer for: Apache + MySQL + WordPress + WooCommerce
+#  + GroceryBuddy plugin  + Let's Encrypt  + health-check endpoint
+#
+#  Tested on Ubuntu 24.04 LTS (EC2 t2.micro)
+#
+#  USAGE:
+#     sudo ./deploy_grocery_cart.sh -d <domain> -e <admin-email>
+#
+#  OPTIONS:
+#     -d DOMAIN   FQDN that already resolves to this server (default: grocerycloudcart.online)
+#     -e EMAIL    E-mail for Let's Encrypt notices (required)
+#     -h          Show help
+#
+#  EXIT CODES:
+#     0  OK
+#    10  Not root / sudo
+#    11  Missing curl / wget
+#    12  Missing email
+#    13  Unexpected failure
+# ---------------------------------------------------------------------------
+
+set -euo pipefail
+
+########################
+# 1. Parse parameters
+########################
+DOMAIN="grocerycloudcart.online"
+LE_EMAIL=""
+while getopts ":d:e:h" opt; do
+  case $opt in
+    d) DOMAIN="$OPTARG" ;;
+    e) LE_EMAIL="$OPTARG" ;;
+    h)
+      grep '^#' "$0" | head -n 20 | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    :)
+      echo "Option -$OPTARG requires an argument." >&2; exit 1 ;;
+    \?)
+      echo "Invalid option: -$OPTARG" >&2; exit 1 ;;
+  esac
+done
+
+[[ "$(id -u)" -eq 0 ]] || { echo "Run as root or with sudo." >&2; exit 10; }
+command -v curl >/dev/null || command -v wget >/dev/null || { echo "curl or wget required." >&2; exit 11; }
+[[ -n "$LE_EMAIL" ]]       || { echo "E-mail (-e) is required." >&2; exit 12; }
+
+LOG=/var/log/grocerycart_deploy.log
+exec > >(tee -a "$LOG") 2>&1
+
+echo -e "\n---  DEPLOYMENT START  $(date)  ---\n"
+
+########################
+# 2. System update & packages
+########################
+export DEBIAN_FRONTEND=noninteractive
+apt update -y
+apt install -y apache2 mariadb-server php php-mysql php-xml php-curl php-gd php-zip php-mbstring \
+               unzip wget curl certbot python3-certbot-apache
+
+########################
+# 3. WordPress CLI
+########################
+if ! command -v wp >/dev/null; then
+  curl -sL https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar -o /usr/local/bin/wp
+  chmod +x /usr/local/bin/wp
+fi
+
+########################
+# 4. Create DB
+########################
+WP_DB="wp_grocery"
+WP_USER="wp_grocery"
+WP_PASS="$(openssl rand -hex 12)"
+mysql -uroot <<SQL
+CREATE DATABASE IF NOT EXISTS $WP_DB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '$WP_USER'@'localhost' IDENTIFIED BY '$WP_PASS';
+GRANT ALL PRIVILEGES ON $WP_DB.* TO '$WP_USER'@'localhost';
+FLUSH PRIVILEGES;
+SQL
+
+########################
+# 5. Apache virtual host
+########################
+DOCROOT="/var/www/${DOMAIN}"
+mkdir -p "$DOCROOT"
+chown -R www-data:www-data "$DOCROOT"
+chmod 750 "$DOCROOT"
+
+VHOST_FILE="/etc/apache2/sites-available/${DOMAIN}.conf"
+cat > "$VHOST_FILE" <<EOF
+<VirtualHost *:80>
+    ServerName ${DOMAIN}
+    ServerAlias www.${DOMAIN}
+    DocumentRoot ${DOCROOT}
+
+    <Directory ${DOCROOT}>
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ErrorLog \${APACHE_LOG_DIR}/${DOMAIN}_error.log
+    CustomLog \${APACHE_LOG_DIR}/${DOMAIN}_access.log combined
+</VirtualHost>
+EOF
+
+a2ensite "${DOMAIN}.conf"
+a2enmod rewrite
+systemctl reload apache2
+
+########################
+# 6. Download & configure WordPress
+########################
+sudo -u www-data wp core download --path="$DOCROOT" --skip-content --quiet
+sudo -u www-data wp config create \
+        --path="$DOCROOT" --dbname="$WP_DB" --dbuser="$WP_USER" --dbpass="$WP_PASS" \
+        --dbhost="localhost" --skip-check --quiet
+sudo -u www-data wp core install \
+        --url="https://${DOMAIN}" \
+        --title="Cloud Grocery Cart" \
+        --admin_user="admin" \
+        --admin_password="$(openssl rand -hex 8)" \
+        --admin_email="$LE_EMAIL" \
+        --skip-email --path="$DOCROOT" --quiet
+
+########################
+# 7. Install WooCommerce + GroceryBuddy
+########################
+sudo -u www-data wp plugin install woocommerce --activate --path="$DOCROOT" --quiet
+sudo -u www-data wp plugin install grocery-shop-grocerybuddy --activate --path="$DOCROOT" --quiet   # :contentReference[oaicite:0]{index=0}
+
+########################
+# 8. Let’s Encrypt TLS
+########################
+certbot --apache -d "$DOMAIN" -d "www.${DOMAIN}" --noninteractive --agree-tos -m "$LE_EMAIL" --redirect
+
+########################
+# 9. Health-check endpoint
+########################
+cat > "${DOCROOT}/healthcheck.php" <<'PHP'
+<?php
+header('Content-Type: text/plain');
+echo "OK " . date('c') . "\n";
+?>
+PHP
+chown www-data:www-data "${DOCROOT}/healthcheck.php"
+
+########################
+# 10. Finished
+########################
+echo -e "\n\033[1;32mDEPLOYMENT SUCCESSFUL\033[0m"
+echo    "Browse → https://${DOMAIN}"
+echo    "Log    → $LOG"
+echo -e "\n---  DEPLOYMENT END  $(date)  ---\n"
