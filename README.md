@@ -1,6 +1,6 @@
-#  Deploy WordPress on AWS EC2 (Ubuntu 24.04)
+#  Deploy WordPress on AWS EC2 Ubuntu + 
 
-A step-by-step walkthrough for launching an EC2 instance, securing it with an SSH key, installing a full LAMP stack, dropping WordPress on top, and optionally enabling HTTPS with Let’s Encrypt.  
+A step-by-step walkthrough for launching an EC2 instance, securing it with an SSH key, installing a full LAMP stack, dropping WordPress on top, and enabling HTTPS with Let’s Encrypt.  
 Works for **IP-only access (`3.107.184.106`)** *or* a real domain (`grocerycloudcart.online`).
 
 ---
@@ -10,7 +10,7 @@ Works for **IP-only access (`3.107.184.106`)** *or* a real domain (`grocerycloud
 | Item | Notes |
 |------|-------|
 | AWS account | Free tier |
-| Local terminal | macOS/Linux shell **or** WSL/PowerShell on Windows |
+| Terminal |
 | Open ports | TCP **22, 80, 443** in the instance’s security group |
 | PEM key | **`ict.pem`** |
 
