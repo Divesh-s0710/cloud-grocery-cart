@@ -10,7 +10,7 @@ Works for **IP-only access (`3.107.184.106`)** *or* a real domain (`grocerycloud
 | Item | Notes |
 |------|-------|
 | AWS account | Free tier |
-| Terminal |
+| Terminal | |Ubuntu|
 | Open ports | TCP **22, 80, 443** in the instance’s security group |
 | PEM key | **`ict.pem`** |
 
