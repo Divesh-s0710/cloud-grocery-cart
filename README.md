@@ -2,6 +2,7 @@
 
 A step-by-step walkthrough for launching an EC2 instance, securing it with an SSH key, installing a full LAMP stack, dropping WordPress on top, and enabling HTTPS with Let’s Encrypt.  
 Works for **IP-only access (`3.107.184.106`)** *or* a real domain <http://grocerycloudcart.online/>
+Youtube Link - <https://youtu.be/YM9Fr3OltbA>
 
 ---
 
